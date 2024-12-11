@@ -1,0 +1,112 @@
+var user = require("../../models/user");
+var bcrypt = require("bcrypt");
+var jwtUtils = require("../Utils/jwt.utils");
+var models = require("../../models");
+
+module.exports = {
+  register(req, res) {
+    console.log("Données reçues :", req.body); // Ajoutez ce log
+    var email = req.body.email;
+    var username = req.body.username;
+    var password = req.body.password;
+    var bio = req.body.bio;
+
+    if (email === null || username === null || password === null) {
+      return res.status(400).json({ " erreur": "paramètre manquant" });
+    }
+    console.log("Valeur de l'email :", email);
+
+    models.USER.findOne({
+      attributes: ["email"],
+      where: { email: email },
+    }).then(function (userFond) {
+      if (!userFond) {
+        console.log("Aucun utilisateur trouvé, insertion en cours...");
+        bcrypt.hash(password, 5, function (err, bcryptedpassword) {
+          if (err) {
+            console.error("Erreur lors du hashage :", err);
+            return res
+              .status(500)
+              .json({ erreur: "Erreur interne lors du hashage" });
+          }
+          console.log("Mot de passe hashé :", bcryptedpassword);
+          var newUser = models.USER.create({
+            email: email,
+            username: username,
+            password: bcryptedpassword,
+            bio: bio,
+            isAdmin: 0,
+          })
+            .then(function (newUser) {
+              console.log("Utilisateur créé avec succès :", newUser);
+              return res.status(201).json({ usersId: newUser.id });
+            })
+            .catch(function (err) {
+              console.error("Erreur lors de l'insertion dans la base :", err);
+              return res.status(500).json({
+                erreur: "Nous ne pouvons pas vérifier l'utilisateur",
+                details: err.message,
+              });
+            });
+        });
+      } else {
+        console.log("Utilisateur déjà existant avec cet email.");
+        return res.status(400).json({ erreur: "l'utilisateur existe déjà" });
+      }
+    });
+  },
+  login: function (req, res) {
+    var email = req.body.email;
+    var password = req.body.password;
+
+    // Vérification des paramètres manquants
+    if (email === null || password === null) {
+      return res.status(400).json({ erreur: "Paramètre manquant" });
+    }
+
+    // Recherche de l'utilisateur dans la base
+    models.USER.findOne({
+      where: { email: email },
+    })
+      .then(function (userFound) {
+        if (userFound) {
+          // Comparaison du mot de passe
+          bcrypt.compare(
+            password,
+            userFound.password,
+            function (errBycrypt, resBycrypt) {
+              if (errBycrypt) {
+                console.error("Erreur de bcrypt :", errBycrypt);
+                return res
+                  .status(500)
+                  .json({
+                    erreur:
+                      "Erreur interne lors de la vérification du mot de passe",
+                  });
+              }
+              if (resBycrypt) {
+                // Mot de passe correct
+                return res.status(200).json({
+                  userId: userFound.id,
+                  token: jwtUtils.generateTokenForUsers(userFound),
+                });
+              } else {
+                // Mot de passe incorrect
+                return res
+                  .status(403)
+                  .json({ erreur: "Mot de passe incorrect" });
+              }
+            }
+          );
+        } else {
+          // Utilisateur non trouvé
+          return res.status(404).json({ erreur: "Utilisateur introuvable" });
+        }
+      })
+      .catch(function (err) {
+        // Gestion des erreurs lors de la requête Sequelize
+        console.error("Erreur lors de la recherche de l'utilisateur :", err);
+        return res.status(500).json({ erreur: "Erreur interne" });
+      });
+  },
+};
